@@ -31,7 +31,7 @@ Downloaded packages are cached in `~/.cache/gh-install/packages` (or
 artifact reuses the cached file — artifacts are immutable after upload, so
 the cache entry is validated against the artifact's `updated_at` timestamp.
 
-The cache prunes itself: packages older than 7 days are deleted on each run
+The cache prunes itself: packages older than 30 days are deleted on each run
 (CI artifacts expire server-side anyway, so old packages are dead weight).
 Tune the retention with the `GH_INSTALL_CACHE_DAYS` environment variable, or
 skip pruning for a run with `--keep-cache`.

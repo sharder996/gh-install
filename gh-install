@@ -17,7 +17,7 @@ PR=""
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/gh-install/packages"
 
 # Cached packages older than this many days are pruned on each run.
-CACHE_DAYS="${GH_INSTALL_CACHE_DAYS:-7}"
+CACHE_DAYS="${GH_INSTALL_CACHE_DAYS:-30}"
 
 usage() {
     cat <<'EOF'
@@ -41,7 +41,7 @@ CACHE
     Packages are cached in ~/.cache/gh-install/packages (or
     \$XDG_CACHE_HOME/gh-install/packages) and reused when the same artifact
     is requested again (artifacts are immutable after upload). Cached
-    packages older than 7 days are pruned on each run; tune with
+    packages older than 30 days are pruned on each run; tune with
     \$GH_INSTALL_CACHE_DAYS or skip with --keep-cache.
 
 NOTES
