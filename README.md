@@ -63,9 +63,8 @@ With a PR number:
 
 With no arguments (or `--edge`), it instead finds the most recent successful
 *scheduled* run of the platform workflow (`macos.yml`, `windows.yml`, or
-`linux.yml`) — the nightly build — and proceeds from step 3. On macOS it
-prefers the per-runner package matching your machine's architecture when the
-run has one, falling back to the combined package.
+`linux.yml`) — the nightly build — and proceeds from step 3. On macOS the
+combined (universal) package is always used.
 
 > [!NOTE]
 > GitHub Actions artifacts expire after a retention period. If the package is

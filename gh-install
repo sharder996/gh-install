@@ -171,22 +171,9 @@ info "Using workflow run: $RUN_ID"
 ALL_ARTIFACTS="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
     --jq ".artifacts[] | select(.expired == false) | .name")"
 
+# On macOS, always use the combined package (multipass-*.mac-Darwin.pkg),
+# not the per-runner arch-specific ones (macos-*-multipass-*.pkg).
 ARTIFACT_NAME="$(echo "$ALL_ARTIFACTS" | grep -E "$ARTIFACT_REGEX" | head -n 1 || true)"
-
-# On macOS, prefer the per-runner package matching this machine's arch when
-# one exists (the combined package can lag behind or miss an arch).
-if [[ "$UNAME" == "Darwin" && "$ARTIFACT_NAME" == multipass-* ]]; then
-    case "$(uname -m)" in
-        arm64)  ARCH_PKG="$(echo "$ALL_ARTIFACTS" | grep -E 'aarch64-Darwin\.pkg$' | head -n 1 || true)" ;;
-        x86_64) ARCH_PKG="$(echo "$ALL_ARTIFACTS" | grep -E 'x86_64-Darwin\.pkg$' | head -n 1 || true)" ;;
-        *)      ARCH_PKG="" ;;
-    esac
-    if [[ -n "$ARCH_PKG" ]]; then
-        ARTIFACT_NAME="$ARCH_PKG"
-    else
-        info "Note: no arch-specific package in this run; using the combined package"
-    fi
-fi
 
 [[ -n "$ARTIFACT_NAME" ]] || die "no (unexpired) package artifact matching '$ARTIFACT_REGEX'
        found in run $RUN_ID. Re-run CI on the PR to produce a fresh package."
