@@ -27,8 +27,9 @@ $ gh install --run 123456789     # install from a specific workflow run
 
 Downloaded packages are cached in `~/.cache/gh-install/packages` (or
 `$XDG_CACHE_HOME/gh-install/packages`). Repeating a command for the same
-artifact reuses the cached file, verified against the artifact's SHA-256
-digest reported by the GitHub API.
+artifact reuses the cached file, validated by size and last-modified time
+against the GitHub API. (The API's digest field covers the artifact's zip
+blob, not the extracted package, so it can't be used to verify the file.)
 
 ### What it does
 

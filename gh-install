@@ -35,7 +35,7 @@ EXAMPLES
 CACHE
     Packages are cached in ~/.cache/gh-install/packages (or
     \$XDG_CACHE_HOME/gh-install/packages) and reused when the same artifact
-    is requested again, verified against its SHA-256 digest.
+    is requested again, verified by size and last-modified time.
 
 NOTES
     - Artifacts expire after a retention period; if no artifact is found,
@@ -154,28 +154,42 @@ info "Found artifact: $ARTIFACT_NAME"
 mkdir -p "$CACHE_DIR"
 PKG_FILE="$CACHE_DIR/$ARTIFACT_NAME"
 
-# sha256 of a file, portable across macOS / Linux / Git Bash.
-sha256_of() {
-    if command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 "$1" | awk '{print $1}'
-    elif command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$1" | awk '{print $1}'
+# Expected size and last-updated time of the extracted package, per the API.
+# (The API's digest field covers the zip blob, not the extracted file, so we
+# validate the cache with size + updated_at instead.)
+ARTIFACT_META="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+    --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\" and .expired == false) | \"\(.size_in_bytes) \(.updated_at)\"" \
+    | head -n 1)"
+EXPECTED_SIZE="${ARTIFACT_META%% *}"
+EXPECTED_UPDATED="${ARTIFACT_META##* }"
+
+file_size() {
+    # Portable file size across macOS / Linux / Git Bash.
+    if stat -f %z "$1" >/dev/null 2>&1; then stat -f %z "$1"; else stat -c %s "$1"; fi
+}
+
+file_mtime() {
+    # Portable mtime (epoch seconds).
+    if stat -f %m "$1" >/dev/null 2>&1; then stat -f %m "$1"; else stat -c %Y "$1"; fi
+}
+
+epoch_of() {
+    # ISO 8601 (e.g. 2026-08-19T18:13:54Z) -> epoch seconds.
+    if date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s >/dev/null 2>&1; then
+        date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$1" +%s
     else
-        echo ""  # no hasher available -> treat as unverifiable
+        date -u -d "$1" +%s
     fi
 }
 
-# The digest of the artifact's zip blob as reported by the API (may be empty).
-ARTIFACT_DIGEST="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
-    --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\" and .expired == false) | .digest // empty" \
-    | head -n 1 | sed 's/^sha256://')"
-
 if [[ -f "$PKG_FILE" ]]; then
-    if [[ -n "$ARTIFACT_DIGEST" && "$(sha256_of "$PKG_FILE")" != "$ARTIFACT_DIGEST" ]]; then
-        info "Cached package failed digest check; re-downloading"
-        rm -f "$PKG_FILE"
-    else
+    ACTUAL_SIZE="$(file_size "$PKG_FILE")"
+    if [[ "$ACTUAL_SIZE" == "$EXPECTED_SIZE" ]] && \
+       [[ "$(file_mtime "$PKG_FILE")" -ge "$(epoch_of "$EXPECTED_UPDATED")" ]]; then
         info "Using cached package: $PKG_FILE"
+    else
+        info "Cached package is stale or incomplete; re-downloading"
+        rm -f "$PKG_FILE"
     fi
 fi
 
