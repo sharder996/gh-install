@@ -32,7 +32,15 @@ the cache entry is validated against the artifact's `updated_at` timestamp.
 
 The cache prunes itself: packages older than 30 days are deleted on each run
 (CI artifacts expire server-side anyway, so old packages are dead weight).
-Tune the retention with the `GH_INSTALL_CACHE_DAYS` environment variable.
+
+Tune behavior with the `GH_INSTALL_CACHE_DAYS` environment variable:
+
+| Value        | Behavior                                                   |
+| ------------ | ---------------------------------------------------------- |
+| `30` (default) | Cache packages; prune entries older than 30 days         |
+| `-1`         | Cache packages; never prune                                |
+| `0`          | Don't cache — download to a temp dir, deleted on exit      |
+| `<days>`     | Cache packages; prune entries older than `<days>` days     |
 
 ### What it does
 

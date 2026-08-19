@@ -16,6 +16,7 @@ PR=""
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/gh-install/packages"
 
 # Cached packages older than this many days are pruned on each run.
+# -1 = never prune, 0 = don't cache at all.
 CACHE_DAYS="${GH_INSTALL_CACHE_DAYS:-30}"
 
 usage() {
@@ -39,8 +40,8 @@ CACHE
     Packages are cached in ~/.cache/gh-install/packages (or
     \$XDG_CACHE_HOME/gh-install/packages) and reused when the same artifact
     is requested again (artifacts are immutable after upload). Cached
-    packages older than 30 days are pruned on each run; tune with
-    \$GH_INSTALL_CACHE_DAYS.
+    packages older than 30 days are pruned on each run. Tune with
+    \$GH_INSTALL_CACHE_DAYS: -1 never prunes, 0 disables caching.
 
 NOTES
     - Artifacts expire after a retention period; if no artifact is found,
@@ -155,14 +156,26 @@ info "Found artifact: $ARTIFACT_NAME"
 
 # --------------------------------------------------------------------------
 # Download (with caching)
+#
+# CACHE_DAYS=0 disables caching: the package goes to a temp dir that is
+# removed on exit, and the cache is left untouched. CACHE_DAYS=-1 keeps the
+# cache but never prunes it.
 # --------------------------------------------------------------------------
-mkdir -p "$CACHE_DIR"
-PKG_FILE="$CACHE_DIR/$ARTIFACT_NAME"
+if [[ "$CACHE_DAYS" == "0" ]]; then
+    PKG_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t gh-install)"
+    trap 'rm -rf "$PKG_DIR"' EXIT
+else
+    PKG_DIR="$CACHE_DIR"
+    mkdir -p "$PKG_DIR"
 
-# Prune cached packages older than $CACHE_DAYS days (they mirror CI artifacts,
-# which expire server-side anyway).
-PRUNED="$(find "$CACHE_DIR" -type f -mtime "+$CACHE_DAYS" -print -delete | wc -l | tr -d ' ')"
-[[ "$PRUNED" == "0" ]] || info "Pruned $PRUNED cached package(s) older than $CACHE_DAYS days"
+    # Prune cached packages older than $CACHE_DAYS days (they mirror CI
+    # artifacts, which expire server-side anyway).
+    if [[ "$CACHE_DAYS" != "-1" ]]; then
+        PRUNED="$(find "$PKG_DIR" -type f -mtime "+$CACHE_DAYS" -print -delete | wc -l | tr -d ' ')"
+        [[ "$PRUNED" == "0" ]] || info "Pruned $PRUNED cached package(s) older than $CACHE_DAYS days"
+    fi
+fi
+PKG_FILE="$PKG_DIR/$ARTIFACT_NAME"
 
 # Last-updated time of the artifact, per the API. Artifacts are immutable
 # after upload, so a cached file whose mtime is at or after updated_at is
@@ -196,13 +209,16 @@ if [[ -f "$PKG_FILE" ]]; then
 fi
 
 if [[ ! -f "$PKG_FILE" ]]; then
-    info "Downloading to cache: $CACHE_DIR"
-    gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$CACHE_DIR"
-    [[ -f "$PKG_FILE" ]] || die "download produced no $ARTIFACT_NAME in $CACHE_DIR"
+    info "Downloading to: $PKG_DIR"
+    gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$PKG_DIR"
+    [[ -f "$PKG_FILE" ]] || die "download produced no $ARTIFACT_NAME in $PKG_DIR"
 fi
 
 if [[ "$DOWNLOAD_ONLY" -eq 1 ]]; then
     info "Package ready: $PKG_FILE"
+    if [[ "$CACHE_DAYS" == "0" ]]; then
+        info "Note: caching disabled (GH_INSTALL_CACHE_DAYS=0); this file is deleted on exit."
+    fi
     exit 0
 fi
 
