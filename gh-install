@@ -12,6 +12,9 @@ RUN_ID=""
 DOWNLOAD_ONLY=0
 PR=""
 
+# Downloaded packages are cached here so repeated installs don't re-download.
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/gh-install/packages"
+
 usage() {
     cat <<'EOF'
 gh install - install the Multipass package built by CI for a pull request.
@@ -26,8 +29,13 @@ FLAGS
 
 EXAMPLES
     gh install 5135                      # install the package from PR 5135
-    gh install 5135 --download           # download the package into the current directory
+    gh install 5135 --download           # download the package only (uses the cache)
     gh install --run 123456789           # install from a specific CI run
+
+CACHE
+    Packages are cached in ~/.cache/gh-install/packages (or
+    \$XDG_CACHE_HOME/gh-install/packages) and reused when the same artifact
+    is requested again, verified against its SHA-256 digest.
 
 NOTES
     - Artifacts expire after a retention period; if no artifact is found,
@@ -141,30 +149,46 @@ ARTIFACT_NAME="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
 info "Found artifact: $ARTIFACT_NAME"
 
 # --------------------------------------------------------------------------
-# Download
+# Download (with caching)
 # --------------------------------------------------------------------------
-if [[ "$DOWNLOAD_ONLY" -eq 1 ]]; then
-    # Download straight into the current directory.
-    gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir .
-    info "Downloaded: $(pwd)/$ARTIFACT_NAME"
-    exit 0
+mkdir -p "$CACHE_DIR"
+PKG_FILE="$CACHE_DIR/$ARTIFACT_NAME"
+
+# sha256 of a file, portable across macOS / Linux / Git Bash.
+sha256_of() {
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        echo ""  # no hasher available -> treat as unverifiable
+    fi
+}
+
+# The digest of the artifact's zip blob as reported by the API (may be empty).
+ARTIFACT_DIGEST="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+    --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\" and .expired == false) | .digest // empty" \
+    | head -n 1 | sed 's/^sha256://')"
+
+if [[ -f "$PKG_FILE" ]]; then
+    if [[ -n "$ARTIFACT_DIGEST" && "$(sha256_of "$PKG_FILE")" != "$ARTIFACT_DIGEST" ]]; then
+        info "Cached package failed digest check; re-downloading"
+        rm -f "$PKG_FILE"
+    else
+        info "Using cached package: $PKG_FILE"
+    fi
 fi
 
-TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t gh-install)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+if [[ ! -f "$PKG_FILE" ]]; then
+    info "Downloading to cache: $CACHE_DIR"
+    gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$CACHE_DIR"
+    [[ -f "$PKG_FILE" ]] || die "download produced no $ARTIFACT_NAME in $CACHE_DIR"
+fi
 
-gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$TMP_DIR"
-
-# Locate the downloaded package file.
-PKG_FILE=""
-while IFS= read -r -d '' f; do
-    PKG_FILE="$f"
-    break
-done < <(find "$TMP_DIR" -type f -print0)
-
-[[ -n "$PKG_FILE" ]] || die "download produced no files (artifact: $ARTIFACT_NAME)"
-
-info "Downloaded: $PKG_FILE"
+if [[ "$DOWNLOAD_ONLY" -eq 1 ]]; then
+    info "Package ready: $PKG_FILE"
+    exit 0
+fi
 
 # --------------------------------------------------------------------------
 # Install

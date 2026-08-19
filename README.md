@@ -11,7 +11,7 @@ the package produced by that PR's CI run, for your current OS.
 
 ```console
 $ gh install 5135                # install the package built for PR 5135
-$ gh install 5135 --download     # download the package into the current directory
+$ gh install 5135 --download     # download the package only (no install)
 $ gh install --run 123456789     # install from a specific workflow run
 ```
 
@@ -20,8 +20,15 @@ $ gh install --run 123456789     # install from a specific workflow run
 | Flag               | Description                                          |
 | ------------------ | ---------------------------------------------------- |
 | `--run <run-id>`   | Use a specific workflow run instead of the PR head   |
-| `--download`       | Download the package into the current directory      |
+| `--download`       | Download only; do not install                        |
 | `-h`, `--help`     | Show help                                            |
+
+### Caching
+
+Downloaded packages are cached in `~/.cache/gh-install/packages` (or
+`$XDG_CACHE_HOME/gh-install/packages`). Repeating a command for the same
+artifact reuses the cached file, verified against the artifact's SHA-256
+digest reported by the GitHub API.
 
 ### What it does
 
