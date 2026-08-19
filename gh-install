@@ -35,7 +35,7 @@ EXAMPLES
 CACHE
     Packages are cached in ~/.cache/gh-install/packages (or
     \$XDG_CACHE_HOME/gh-install/packages) and reused when the same artifact
-    is requested again, verified by size and last-modified time.
+    is requested again (artifacts are immutable after upload).
 
 NOTES
     - Artifacts expire after a retention period; if no artifact is found,
@@ -154,19 +154,13 @@ info "Found artifact: $ARTIFACT_NAME"
 mkdir -p "$CACHE_DIR"
 PKG_FILE="$CACHE_DIR/$ARTIFACT_NAME"
 
-# Expected size and last-updated time of the extracted package, per the API.
-# (The API's digest field covers the zip blob, not the extracted file, so we
-# validate the cache with size + updated_at instead.)
-ARTIFACT_META="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
-    --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\" and .expired == false) | \"\(.size_in_bytes) \(.updated_at)\"" \
+# Last-updated time of the artifact, per the API. Artifacts are immutable
+# after upload, so a cached file whose mtime is at or after updated_at is
+# valid. (The API's size_in_bytes and digest both describe the artifact's
+# zip blob, not the extracted package, so they can't validate the file.)
+EXPECTED_UPDATED="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+    --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\" and .expired == false) | .updated_at" \
     | head -n 1)"
-EXPECTED_SIZE="${ARTIFACT_META%% *}"
-EXPECTED_UPDATED="${ARTIFACT_META##* }"
-
-file_size() {
-    # Portable file size across macOS / Linux / Git Bash.
-    if stat -f %z "$1" >/dev/null 2>&1; then stat -f %z "$1"; else stat -c %s "$1"; fi
-}
 
 file_mtime() {
     # Portable mtime (epoch seconds).
@@ -183,12 +177,10 @@ epoch_of() {
 }
 
 if [[ -f "$PKG_FILE" ]]; then
-    ACTUAL_SIZE="$(file_size "$PKG_FILE")"
-    if [[ "$ACTUAL_SIZE" == "$EXPECTED_SIZE" ]] && \
-       [[ "$(file_mtime "$PKG_FILE")" -ge "$(epoch_of "$EXPECTED_UPDATED")" ]]; then
+    if [[ "$(file_mtime "$PKG_FILE")" -ge "$(epoch_of "$EXPECTED_UPDATED")" ]]; then
         info "Using cached package: $PKG_FILE"
     else
-        info "Cached package is stale or incomplete; re-downloading"
+        info "Cached package is stale; re-downloading"
         rm -f "$PKG_FILE"
     fi
 fi
