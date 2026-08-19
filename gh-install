@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# gh-install - install the Multipass package built by CI for a given PR.
+#
+# This is a GitHub CLI extension. gh executes script extensions with a POSIX
+# shell; on Windows that is the sh.exe bundled with Git for Windows, so this
+# single script works on macOS and Windows (and Linux, for snaps).
+
+set -euo pipefail
+
+REPO="canonical/multipass"
+RUN_ID=""
+DOWNLOAD_ONLY=0
+PR=""
+
+usage() {
+    cat <<'EOF'
+gh install - install the Multipass package built by CI for a pull request.
+
+USAGE
+    gh install <pr-number> [flags]
+
+FLAGS
+    --run <run-id>        Use a specific workflow run instead of resolving the PR head
+    --download            Download the package only; do not install it
+    -h, --help            Show this help
+
+EXAMPLES
+    gh install 5135                      # install the package from PR 5135
+    gh install 5135 --download           # just download it
+    gh install --run 123456789           # install from a specific CI run
+
+NOTES
+    - Artifacts expire after a retention period; if no artifact is found,
+      re-run CI on the PR to produce a fresh one.
+    - On Windows, run this from a Git Bash / gh terminal that can elevate
+      (msiexec will prompt via UAC if needed).
+EOF
+}
+
+die() {
+    echo "error: $*" >&2
+    exit 1
+}
+
+info() {
+    echo "==> $*"
+}
+
+# --------------------------------------------------------------------------
+# Parse arguments
+# --------------------------------------------------------------------------
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --run)
+            RUN_ID="${2:?--run requires a value}"
+            shift 2
+            ;;
+        --download)
+            DOWNLOAD_ONLY=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            die "unknown flag: $1 (see --help)"
+            ;;
+        *)
+            [[ -z "$PR" ]] || die "unexpected extra argument: $1"
+            PR="$1"
+            shift
+            ;;
+    esac
+done
+
+[[ -n "$PR" || -n "$RUN_ID" ]] || { usage; die "a PR number or --run is required"; }
+
+# --------------------------------------------------------------------------
+# Preconditions
+# --------------------------------------------------------------------------
+command -v gh >/dev/null 2>&1 || die "gh (GitHub CLI) is not installed"
+gh auth status >/dev/null 2>&1 || die "gh is not authenticated; run 'gh auth login'"
+
+# --------------------------------------------------------------------------
+# Detect platform -> workflow + artifact pattern
+# --------------------------------------------------------------------------
+UNAME="$(uname -s)"
+case "$UNAME" in
+    Darwin)
+        WORKFLOW="macos.yml"
+        ARTIFACT_REGEX='\.pkg$'
+        ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+        WORKFLOW="windows.yml"
+        ARTIFACT_REGEX='\.(msi|exe)$'
+        ;;
+    Linux)
+        WORKFLOW="linux.yml"
+        ARTIFACT_REGEX='\.snap$'
+        ;;
+    *)
+        die "unsupported OS: $UNAME"
+        ;;
+esac
+
+info "Platform: $UNAME (workflow: $WORKFLOW)"
+
+# --------------------------------------------------------------------------
+# Resolve the workflow run
+# --------------------------------------------------------------------------
+if [[ -z "$RUN_ID" ]]; then
+    info "Resolving head commit of PR #$PR in $REPO"
+    SHA="$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid)" \
+        || die "could not look up PR #$PR in $REPO"
+    info "PR head: $SHA"
+
+    RUN_ID="$(gh run list --repo "$REPO" --commit "$SHA" --workflow "$WORKFLOW" \
+        --json databaseId,conclusion \
+        --jq '[.[] | select(.conclusion == "success")][0].databaseId // empty')"
+
+    [[ -n "$RUN_ID" ]] || die "no successful $WORKFLOW run found for $SHA.
+       CI may still be running, or the artifacts may have expired.
+       Re-run CI on the PR, or pass --run <id> to use a specific run."
+fi
+
+info "Using workflow run: $RUN_ID"
+
+# --------------------------------------------------------------------------
+# Pick the package artifact
+# --------------------------------------------------------------------------
+ARTIFACT_NAME="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+    --jq ".artifacts[] | select(.expired == false) | .name" \
+    | grep -E "$ARTIFACT_REGEX" | head -n 1 || true)"
+
+[[ -n "$ARTIFACT_NAME" ]] || die "no (unexpired) package artifact matching '$ARTIFACT_REGEX'
+       found in run $RUN_ID. Re-run CI on the PR to produce a fresh package."
+
+info "Found artifact: $ARTIFACT_NAME"
+
+# --------------------------------------------------------------------------
+# Download
+# --------------------------------------------------------------------------
+TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t mp-install)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$TMP_DIR"
+
+# Locate the downloaded package file.
+PKG_FILE=""
+while IFS= read -r -d '' f; do
+    PKG_FILE="$f"
+    break
+done < <(find "$TMP_DIR" -type f -print0)
+
+[[ -n "$PKG_FILE" ]] || die "download produced no files (artifact: $ARTIFACT_NAME)"
+
+info "Downloaded: $PKG_FILE"
+
+if [[ "$DOWNLOAD_ONLY" -eq 1 ]]; then
+    KEEP_DIR="${TMPDIR:-/tmp}/gh-install-$RUN_ID"
+    mkdir -p "$KEEP_DIR"
+    cp "$PKG_FILE" "$KEEP_DIR/"
+    info "Kept package at: $KEEP_DIR/$(basename "$PKG_FILE")"
+    exit 0
+fi
+
+# --------------------------------------------------------------------------
+# Install
+# --------------------------------------------------------------------------
+case "$PKG_FILE" in
+    *.pkg)
+        info "Installing with macOS installer (sudo may prompt for a password)"
+        sudo installer -pkg "$PKG_FILE" -target /
+        ;;
+    *.msi)
+        # Convert the Git Bash path to a Windows path for msiexec.
+        WIN_PATH="$(cygpath -w "$PKG_FILE" 2>/dev/null || echo "$PKG_FILE")"
+        info "Installing $WIN_PATH with msiexec"
+        msiexec //i "$WIN_PATH" //passive //norestart
+        ;;
+    *.exe)
+        WIN_PATH="$(cygpath -w "$PKG_FILE" 2>/dev/null || echo "$PKG_FILE")"
+        info "Running installer $WIN_PATH"
+        "$PKG_FILE"
+        ;;
+    *.snap)
+        info "Installing snap with --dangerous (unsigned CI build)"
+        sudo snap install --dangerous "$PKG_FILE"
+        ;;
+    *)
+        die "don't know how to install: $PKG_FILE"
+        ;;
+esac
+
+info "Done. Multipass from PR #$PR (run $RUN_ID) installed."
