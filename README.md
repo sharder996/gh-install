@@ -26,8 +26,9 @@ $ gh install --run 123456789     # install from a specific workflow run
 ### What it does
 
 1. Resolves the head commit of the PR (`gh pr view`).
-2. Finds the most recent successful CI run for that commit on the
-   platform-appropriate workflow (`macos.yml`, `windows.yml`, or `linux.yml`).
+2. Finds the most recent successful `Dynamic CI` run for that commit (the
+   `macos.yml` / `windows.yml` / `linux.yml` workflows are called from it via
+   `workflow_call`, so the packages are artifacts of that run).
 3. Picks the matching, non-expired package artifact (`.pkg`, `.msi`/`.exe`, or
    `.snap`).
 4. Downloads it (`gh run download`) and installs it:

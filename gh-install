@@ -83,20 +83,21 @@ command -v gh >/dev/null 2>&1 || die "gh (GitHub CLI) is not installed"
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated; run 'gh auth login'"
 
 # --------------------------------------------------------------------------
-# Detect platform -> workflow + artifact pattern
+# Detect platform -> artifact pattern
+#
+# The platform workflows (macos.yml, windows.yml, linux.yml) are only invoked
+# via workflow_call from the "Dynamic CI" workflow, so the run to download
+# from is always the Dynamic CI run for the PR's head commit.
 # --------------------------------------------------------------------------
 UNAME="$(uname -s)"
 case "$UNAME" in
     Darwin)
-        WORKFLOW="macos.yml"
         ARTIFACT_REGEX='\.pkg$'
         ;;
     MINGW*|MSYS*|CYGWIN*|Windows_NT)
-        WORKFLOW="windows.yml"
         ARTIFACT_REGEX='\.(msi|exe)$'
         ;;
     Linux)
-        WORKFLOW="linux.yml"
         ARTIFACT_REGEX='\.snap$'
         ;;
     *)
@@ -104,7 +105,7 @@ case "$UNAME" in
         ;;
 esac
 
-info "Platform: $UNAME (workflow: $WORKFLOW)"
+info "Platform: $UNAME"
 
 # --------------------------------------------------------------------------
 # Resolve the workflow run
@@ -115,13 +116,14 @@ if [[ -z "$RUN_ID" ]]; then
         || die "could not look up PR #$PR in $REPO"
     info "PR head: $SHA"
 
-    RUN_ID="$(gh run list --repo "$REPO" --commit "$SHA" --workflow "$WORKFLOW" \
+    RUN_ID="$(gh run list --repo "$REPO" --commit "$SHA" --workflow "Dynamic CI" \
         --json databaseId,conclusion \
         --jq '[.[] | select(.conclusion == "success")][0].databaseId // empty')"
 
-    [[ -n "$RUN_ID" ]] || die "no successful $WORKFLOW run found for $SHA.
-       CI may still be running, or the artifacts may have expired.
-       Re-run CI on the PR, or pass --run <id> to use a specific run."
+    [[ -n "$RUN_ID" ]] || die "no successful 'Dynamic CI' run found for $SHA.
+       CI may still be running, awaiting approval, or the artifacts may have
+       expired. Re-run/approve CI on the PR, or pass --run <id> to use a
+       specific run."
 fi
 
 info "Using workflow run: $RUN_ID"
