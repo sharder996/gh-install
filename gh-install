@@ -10,10 +10,14 @@ set -euo pipefail
 REPO="canonical/multipass"
 RUN_ID=""
 DOWNLOAD_ONLY=0
+KEEP_CACHE=0
 PR=""
 
 # Downloaded packages are cached here so repeated installs don't re-download.
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/gh-install/packages"
+
+# Cached packages older than this many days are pruned on each run.
+CACHE_DAYS="${GH_INSTALL_CACHE_DAYS:-7}"
 
 usage() {
     cat <<'EOF'
@@ -25,6 +29,7 @@ USAGE
 FLAGS
     --run <run-id>        Use a specific workflow run instead of resolving the PR head
     --download            Download the package only; do not install it
+    --keep-cache          Do not prune old packages from the cache on this run
     -h, --help            Show this help
 
 EXAMPLES
@@ -35,7 +40,9 @@ EXAMPLES
 CACHE
     Packages are cached in ~/.cache/gh-install/packages (or
     \$XDG_CACHE_HOME/gh-install/packages) and reused when the same artifact
-    is requested again (artifacts are immutable after upload).
+    is requested again (artifacts are immutable after upload). Cached
+    packages older than 7 days are pruned on each run; tune with
+    \$GH_INSTALL_CACHE_DAYS or skip with --keep-cache.
 
 NOTES
     - Artifacts expire after a retention period; if no artifact is found,
@@ -65,6 +72,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --download)
             DOWNLOAD_ONLY=1
+            shift
+            ;;
+        --keep-cache)
+            KEEP_CACHE=1
             shift
             ;;
         -h|--help)
@@ -153,6 +164,13 @@ info "Found artifact: $ARTIFACT_NAME"
 # --------------------------------------------------------------------------
 mkdir -p "$CACHE_DIR"
 PKG_FILE="$CACHE_DIR/$ARTIFACT_NAME"
+
+# Prune cached packages older than $CACHE_DAYS days (they mirror CI artifacts,
+# which expire server-side anyway).
+if [[ "$KEEP_CACHE" -eq 0 ]]; then
+    PRUNED="$(find "$CACHE_DIR" -type f -mtime "+$CACHE_DAYS" -print -delete | wc -l | tr -d ' ')"
+    [[ "$PRUNED" == "0" ]] || info "Pruned $PRUNED cached package(s) older than $CACHE_DAYS days"
+fi
 
 # Last-updated time of the artifact, per the API. Artifacts are immutable
 # after upload, so a cached file whose mtime is at or after updated_at is

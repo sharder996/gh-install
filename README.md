@@ -21,6 +21,7 @@ $ gh install --run 123456789     # install from a specific workflow run
 | ------------------ | ---------------------------------------------------- |
 | `--run <run-id>`   | Use a specific workflow run instead of the PR head   |
 | `--download`       | Download only; do not install                        |
+| `--keep-cache`     | Do not prune old cached packages on this run         |
 | `-h`, `--help`     | Show help                                            |
 
 ### Caching
@@ -29,6 +30,11 @@ Downloaded packages are cached in `~/.cache/gh-install/packages` (or
 `$XDG_CACHE_HOME/gh-install/packages`). Repeating a command for the same
 artifact reuses the cached file — artifacts are immutable after upload, so
 the cache entry is validated against the artifact's `updated_at` timestamp.
+
+The cache prunes itself: packages older than 7 days are deleted on each run
+(CI artifacts expire server-side anyway, so old packages are dead weight).
+Tune the retention with the `GH_INSTALL_CACHE_DAYS` environment variable, or
+skip pruning for a run with `--keep-cache`.
 
 ### What it does
 
