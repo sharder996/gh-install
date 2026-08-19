@@ -5,11 +5,14 @@ the [Multipass](https://github.com/canonical/multipass) package built by CI for
 a given pull request.
 
 Think of it as `gh co 5135`, but instead of checking out the code it installs
-the package produced by that PR's CI run, for your current OS.
+the package produced by that PR's CI run, for your current OS. With no
+arguments it installs the latest nightly build.
 
 ## Usage
 
 ```console
+$ gh install                     # install the latest nightly build
+$ gh install --edge              # same thing, spelled out
 $ gh install 5135                # install the package built for PR 5135
 $ gh install 5135 --download     # download the package only (no install)
 $ gh install --run 123456789     # install from a specific workflow run
@@ -19,6 +22,7 @@ $ gh install --run 123456789     # install from a specific workflow run
 
 | Flag               | Description                                          |
 | ------------------ | ---------------------------------------------------- |
+| `--edge`           | Install the latest nightly build (default with no PR) |
 | `--run <run-id>`   | Use a specific workflow run instead of the PR head   |
 | `--download`       | Download only; do not install                        |
 | `-h`, `--help`     | Show help                                            |
@@ -44,6 +48,8 @@ Tune behavior with the `GH_INSTALL_CACHE_DAYS` environment variable:
 
 ### What it does
 
+With a PR number:
+
 1. Resolves the head commit of the PR (`gh pr view`).
 2. Finds the most recent successful `Dynamic CI` run for that commit (the
    `macos.yml` / `windows.yml` / `linux.yml` workflows are called from it via
@@ -54,6 +60,12 @@ Tune behavior with the `GH_INSTALL_CACHE_DAYS` environment variable:
    - macOS: `sudo installer -pkg … -target /`
    - Windows: `msiexec /i …` (or runs the `.exe` installer)
    - Linux: `sudo snap install --dangerous …`
+
+With no arguments (or `--edge`), it instead finds the most recent successful
+*scheduled* run of the platform workflow (`macos.yml`, `windows.yml`, or
+`linux.yml`) — the nightly build — and proceeds from step 3. On macOS it
+prefers the per-runner package matching your machine's architecture when the
+run has one, falling back to the combined package.
 
 > [!NOTE]
 > GitHub Actions artifacts expire after a retention period. If the package is

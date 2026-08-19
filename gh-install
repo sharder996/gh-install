@@ -10,6 +10,7 @@ set -euo pipefail
 REPO="canonical/multipass"
 RUN_ID=""
 DOWNLOAD_ONLY=0
+EDGE=0
 PR=""
 
 # Downloaded packages are cached here so repeated installs don't re-download.
@@ -24,16 +25,22 @@ usage() {
 gh install - install the Multipass package built by CI for a pull request.
 
 USAGE
-    gh install <pr-number> [flags]
+    gh install [pr-number | --edge] [flags]
+
+    With no arguments (or --edge), installs the package from the latest
+    successful nightly build of the platform workflow.
 
 FLAGS
+    --edge                Install the latest nightly build (default when no PR is given)
     --run <run-id>        Use a specific workflow run instead of resolving the PR head
     --download            Download the package only; do not install it
     -h, --help            Show this help
 
 EXAMPLES
+    gh install                           # install the latest nightly build
+    gh install --edge                    # same thing, spelled out
     gh install 5135                      # install the package from PR 5135
-    gh install 5135 --download           # download the package only (uses the cache)
+    gh install 5135 --download           # download the package only
     gh install --run 123456789           # install from a specific CI run
 
 CACHE
@@ -65,6 +72,10 @@ info() {
 # --------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --edge)
+            EDGE=1
+            shift
+            ;;
         --run)
             RUN_ID="${2:?--run requires a value}"
             shift 2
@@ -88,7 +99,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -n "$PR" || -n "$RUN_ID" ]] || { usage; die "a PR number or --run is required"; }
+[[ -n "$PR" || -n "$RUN_ID" || "$EDGE" -eq 1 ]] || EDGE=1
+[[ -z "$PR" || "$EDGE" -eq 0 ]] || die "a PR number and --edge are mutually exclusive"
 
 # --------------------------------------------------------------------------
 # Preconditions
@@ -97,21 +109,25 @@ command -v gh >/dev/null 2>&1 || die "gh (GitHub CLI) is not installed"
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated; run 'gh auth login'"
 
 # --------------------------------------------------------------------------
-# Detect platform -> artifact pattern
+# Detect platform -> workflow + artifact pattern
 #
-# The platform workflows (macos.yml, windows.yml, linux.yml) are only invoked
-# via workflow_call from the "Dynamic CI" workflow, so the run to download
-# from is always the Dynamic CI run for the PR's head commit.
+# PR builds: the platform workflows are invoked via workflow_call from the
+# "Dynamic CI" workflow, so the run to download from is the Dynamic CI run
+# for the PR's head commit. Nightly builds (--edge): the same platform
+# workflows run standalone on a schedule.
 # --------------------------------------------------------------------------
 UNAME="$(uname -s)"
 case "$UNAME" in
     Darwin)
+        EDGE_WORKFLOW="macos.yml"
         ARTIFACT_REGEX='\.pkg$'
         ;;
     MINGW*|MSYS*|CYGWIN*|Windows_NT)
+        EDGE_WORKFLOW="windows.yml"
         ARTIFACT_REGEX='\.(msi|exe)$'
         ;;
     Linux)
+        EDGE_WORKFLOW="linux.yml"
         ARTIFACT_REGEX='\.snap$'
         ;;
     *)
@@ -124,7 +140,14 @@ info "Platform: $UNAME"
 # --------------------------------------------------------------------------
 # Resolve the workflow run
 # --------------------------------------------------------------------------
-if [[ -z "$RUN_ID" ]]; then
+if [[ -z "$RUN_ID" && "$EDGE" -eq 1 ]]; then
+    info "Finding latest successful nightly $EDGE_WORKFLOW run in $REPO"
+    RUN_ID="$(gh run list --repo "$REPO" --workflow "$EDGE_WORKFLOW" --event schedule \
+        --json databaseId,conclusion \
+        --jq '[.[] | select(.conclusion == "success")][0].databaseId // empty')"
+
+    [[ -n "$RUN_ID" ]] || die "no successful nightly $EDGE_WORKFLOW run found in $REPO"
+elif [[ -z "$RUN_ID" ]]; then
     info "Resolving head commit of PR #$PR in $REPO"
     SHA="$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid)" \
         || die "could not look up PR #$PR in $REPO"
@@ -145,9 +168,25 @@ info "Using workflow run: $RUN_ID"
 # --------------------------------------------------------------------------
 # Pick the package artifact
 # --------------------------------------------------------------------------
-ARTIFACT_NAME="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
-    --jq ".artifacts[] | select(.expired == false) | .name" \
-    | grep -E "$ARTIFACT_REGEX" | head -n 1 || true)"
+ALL_ARTIFACTS="$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+    --jq ".artifacts[] | select(.expired == false) | .name")"
+
+ARTIFACT_NAME="$(echo "$ALL_ARTIFACTS" | grep -E "$ARTIFACT_REGEX" | head -n 1 || true)"
+
+# On macOS, prefer the per-runner package matching this machine's arch when
+# one exists (the combined package can lag behind or miss an arch).
+if [[ "$UNAME" == "Darwin" && "$ARTIFACT_NAME" == multipass-* ]]; then
+    case "$(uname -m)" in
+        arm64)  ARCH_PKG="$(echo "$ALL_ARTIFACTS" | grep -E 'aarch64-Darwin\.pkg$' | head -n 1 || true)" ;;
+        x86_64) ARCH_PKG="$(echo "$ALL_ARTIFACTS" | grep -E 'x86_64-Darwin\.pkg$' | head -n 1 || true)" ;;
+        *)      ARCH_PKG="" ;;
+    esac
+    if [[ -n "$ARCH_PKG" ]]; then
+        ARTIFACT_NAME="$ARCH_PKG"
+    else
+        info "Note: no arch-specific package in this run; using the combined package"
+    fi
+fi
 
 [[ -n "$ARTIFACT_NAME" ]] || die "no (unexpired) package artifact matching '$ARTIFACT_REGEX'
        found in run $RUN_ID. Re-run CI on the PR to produce a fresh package."
