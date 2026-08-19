@@ -73,7 +73,7 @@ combined (universal) package is always used.
 ## Installing the extension
 
 ```console
-$ gh extension install <owner>/gh-install
+$ gh extension install sharder996/gh-install
 ```
 
 Upgrade later with:
