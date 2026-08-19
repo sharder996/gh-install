@@ -26,7 +26,7 @@ FLAGS
 
 EXAMPLES
     gh install 5135                      # install the package from PR 5135
-    gh install 5135 --download           # just download it
+    gh install 5135 --download           # download the package into the current directory
     gh install --run 123456789           # install from a specific CI run
 
 NOTES
@@ -143,7 +143,14 @@ info "Found artifact: $ARTIFACT_NAME"
 # --------------------------------------------------------------------------
 # Download
 # --------------------------------------------------------------------------
-TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t mp-install)"
+if [[ "$DOWNLOAD_ONLY" -eq 1 ]]; then
+    # Download straight into the current directory.
+    gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir .
+    info "Downloaded: $(pwd)/$ARTIFACT_NAME"
+    exit 0
+fi
+
+TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t gh-install)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$TMP_DIR"
@@ -158,14 +165,6 @@ done < <(find "$TMP_DIR" -type f -print0)
 [[ -n "$PKG_FILE" ]] || die "download produced no files (artifact: $ARTIFACT_NAME)"
 
 info "Downloaded: $PKG_FILE"
-
-if [[ "$DOWNLOAD_ONLY" -eq 1 ]]; then
-    KEEP_DIR="${TMPDIR:-/tmp}/gh-install-$RUN_ID"
-    mkdir -p "$KEEP_DIR"
-    cp "$PKG_FILE" "$KEEP_DIR/"
-    info "Kept package at: $KEEP_DIR/$(basename "$PKG_FILE")"
-    exit 0
-fi
 
 # --------------------------------------------------------------------------
 # Install

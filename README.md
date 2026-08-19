@@ -11,7 +11,7 @@ the package produced by that PR's CI run, for your current OS.
 
 ```console
 $ gh install 5135                # install the package built for PR 5135
-$ gh install 5135 --download     # just download the package
+$ gh install 5135 --download     # download the package into the current directory
 $ gh install --run 123456789     # install from a specific workflow run
 ```
 
@@ -20,7 +20,7 @@ $ gh install --run 123456789     # install from a specific workflow run
 | Flag               | Description                                          |
 | ------------------ | ---------------------------------------------------- |
 | `--run <run-id>`   | Use a specific workflow run instead of the PR head   |
-| `--download`       | Download only; keep the package in a temp dir        |
+| `--download`       | Download the package into the current directory      |
 | `-h`, `--help`     | Show help                                            |
 
 ### What it does
