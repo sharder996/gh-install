@@ -226,19 +226,30 @@ epoch_of() {
     fi
 }
 
-if [[ -f "$PKG_FILE" ]]; then
+if [[ -f "$PKG_FILE" && ! -d "$PKG_FILE" ]]; then
     if [[ "$(file_mtime "$PKG_FILE")" -ge "$(epoch_of "$EXPECTED_UPDATED")" ]]; then
         info "Using cached package: $PKG_FILE"
     else
         info "Cached package is stale; re-downloading"
-        rm -f "$PKG_FILE"
+        rm -rf "$PKG_FILE"
     fi
+elif [[ -e "$PKG_FILE" ]]; then
+    # Not a regular file (e.g. a directory left by a failed extraction).
+    rm -rf "$PKG_FILE"
 fi
 
 if [[ ! -f "$PKG_FILE" ]]; then
+    # Download into a staging dir, then move into place. The artifact zip
+    # contains a directory entry named like the .msi inside it, which gh's
+    # extractor mishandles on Windows when extracting over an existing path.
+    STAGE_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t gh-install)"
     info "Downloading to: $PKG_DIR"
-    gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$PKG_DIR"
-    [[ -f "$PKG_FILE" ]] || die "download produced no $ARTIFACT_NAME in $PKG_DIR"
+    gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$STAGE_DIR"
+
+    STAGED_FILE="$(find "$STAGE_DIR" -type f -name "$ARTIFACT_NAME" | head -n 1)"
+    [[ -n "$STAGED_FILE" ]] || { rm -rf "$STAGE_DIR"; die "download produced no $ARTIFACT_NAME"; }
+    mv "$STAGED_FILE" "$PKG_FILE"
+    rm -rf "$STAGE_DIR"
 fi
 
 if [[ "$DOWNLOAD_ONLY" -eq 1 ]]; then
