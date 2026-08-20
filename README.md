@@ -52,19 +52,20 @@ With a PR number:
 
 1. Resolves the head commit of the PR (`gh pr view`).
 2. Finds the most recent successful `Dynamic CI` run for that commit (the
-   `macos.yml` / `windows.yml` / `linux.yml` workflows are called from it via
+   `macos.yml` / `windows.yml` workflows are called from it via
    `workflow_call`, so the packages are artifacts of that run).
-3. Picks the matching, non-expired package artifact (`.pkg`, `.msi`/`.exe`, or
-   `.snap`).
+3. Picks the matching, non-expired package artifact (`.pkg` or `.msi`/`.exe`).
 4. Downloads it (`gh run download`) and installs it:
    - macOS: `sudo installer -pkg … -target /`
    - Windows: `msiexec /i …` (or runs the `.exe` installer)
-   - Linux: `sudo snap install --dangerous …`
 
 With no arguments (or `--edge`), it instead finds the most recent successful
-*scheduled* run of the platform workflow (`macos.yml`, `windows.yml`, or
-`linux.yml`) — the nightly build — and proceeds from step 3. On macOS the
-combined (universal) package is always used.
+*scheduled* run of the platform workflow (`macos.yml` or `windows.yml`) — the
+nightly build — and proceeds from step 3. On macOS the combined (universal)
+package is always used.
+
+Linux is not supported: snap packages are already distributed via the snap
+store through Launchpad (`sudo snap install multipass --edge`).
 
 > [!NOTE]
 > GitHub Actions artifacts expire after a retention period. If the package is
@@ -84,16 +85,17 @@ $ gh extension upgrade --all
 
 ## Platform support
 
-- **macOS** and **Linux**: works in any POSIX shell with `gh` authenticated.
+- **macOS**: works in any POSIX shell with `gh` authenticated.
 - **Windows**: `gh` executes script extensions with the `sh.exe` bundled with
   Git for Windows, so this single bash script works there too. Run it from a
   terminal where UAC elevation is possible for `msiexec`.
+- **Linux**: not supported — snaps are distributed via the snap store.
 
 ## Requirements
 
 - [GitHub CLI](https://cli.github.com/) (`gh`), authenticated
   (`gh auth login`) with access to the Multipass repository.
-- macOS/Linux: `sudo` rights to install the package.
+- macOS: `sudo` rights to install the package.
 - Windows: Git for Windows (installed automatically with `gh`), and permission
   to install software.
 

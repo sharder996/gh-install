@@ -3,7 +3,8 @@
 #
 # This is a GitHub CLI extension. gh executes script extensions with a POSIX
 # shell; on Windows that is the sh.exe bundled with Git for Windows, so this
-# single script works on macOS and Windows (and Linux, for snaps).
+# single script works on macOS and Windows. (Linux is not supported: snap
+# packages are already distributed via the snap store.)
 
 set -euo pipefail
 
@@ -127,8 +128,8 @@ case "$UNAME" in
         ARTIFACT_REGEX='\.(msi|exe)$'
         ;;
     Linux)
-        EDGE_WORKFLOW="linux.yml"
-        ARTIFACT_REGEX='\.snap$'
+        die "Linux is not supported: snap packages are distributed via the snap store
+       (e.g. 'sudo snap install multipass --edge')."
         ;;
     *)
         die "unsupported OS: $UNAME"
@@ -266,10 +267,6 @@ case "$PKG_FILE" in
         WIN_PATH="$(cygpath -w "$PKG_FILE" 2>/dev/null || echo "$PKG_FILE")"
         info "Running installer $WIN_PATH"
         "$PKG_FILE"
-        ;;
-    *.snap)
-        info "Installing snap with --dangerous (unsigned CI build)"
-        sudo snap install --dangerous "$PKG_FILE"
         ;;
     *)
         die "don't know how to install: $PKG_FILE"
