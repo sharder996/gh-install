@@ -246,8 +246,16 @@ if [[ ! -f "$PKG_FILE" ]]; then
     info "Downloading to: $PKG_DIR"
     gh run download "$RUN_ID" --repo "$REPO" --name "$ARTIFACT_NAME" --dir "$STAGE_DIR"
 
-    STAGED_FILE="$(find "$STAGE_DIR" -type f -name "$ARTIFACT_NAME" | head -n 1)"
-    [[ -n "$STAGED_FILE" ]] || { rm -rf "$STAGE_DIR"; die "download produced no $ARTIFACT_NAME"; }
+    # The package file inside the zip shares the artifact name, minus any
+    # runner prefix, e.g. artifact "windows-2025-multipass-....msi" contains
+    # "multipass-....msi". Search by extension to be safe.
+    FILE_GLOB="*.${ARTIFACT_NAME##*.}"
+    STAGED_FILE="$(find "$STAGE_DIR" -type f -name "$FILE_GLOB" | head -n 1)"
+    if [[ -z "$STAGED_FILE" ]]; then
+        find "$STAGE_DIR" | sed 's/^/  staged: /' >&2
+        rm -rf "$STAGE_DIR"
+        die "download produced no $FILE_GLOB file"
+    fi
     mv "$STAGED_FILE" "$PKG_FILE"
     rm -rf "$STAGE_DIR"
 fi
