@@ -125,7 +125,7 @@ case "$UNAME" in
         ;;
     MINGW*|MSYS*|CYGWIN*|Windows_NT)
         EDGE_WORKFLOW="windows.yml"
-        ARTIFACT_REGEX='\.(msi|exe)$'
+        ARTIFACT_REGEX='\.msi$'
         ;;
     Linux)
         die "Linux is not supported: snap packages are distributed via the snap store
@@ -262,11 +262,6 @@ case "$PKG_FILE" in
         WIN_PATH="$(cygpath -w "$PKG_FILE" 2>/dev/null || echo "$PKG_FILE")"
         info "Installing $WIN_PATH with msiexec"
         msiexec //i "$WIN_PATH" //passive //norestart
-        ;;
-    *.exe)
-        WIN_PATH="$(cygpath -w "$PKG_FILE" 2>/dev/null || echo "$PKG_FILE")"
-        info "Running installer $WIN_PATH"
-        "$PKG_FILE"
         ;;
     *)
         die "don't know how to install: $PKG_FILE"

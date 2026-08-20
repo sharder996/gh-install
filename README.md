@@ -54,10 +54,10 @@ With a PR number:
 2. Finds the most recent successful `Dynamic CI` run for that commit (the
    `macos.yml` / `windows.yml` workflows are called from it via
    `workflow_call`, so the packages are artifacts of that run).
-3. Picks the matching, non-expired package artifact (`.pkg` or `.msi`/`.exe`).
+3. Picks the matching, non-expired package artifact (`.pkg` or `.msi`).
 4. Downloads it (`gh run download`) and installs it:
    - macOS: `sudo installer -pkg … -target /`
-   - Windows: `msiexec /i …` (or runs the `.exe` installer)
+   - Windows: `msiexec /i …`
 
 With no arguments (or `--edge`), it instead finds the most recent successful
 *scheduled* run of the platform workflow (`macos.yml` or `windows.yml`) — the
